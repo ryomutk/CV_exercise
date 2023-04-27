@@ -1,4 +1,5 @@
 #include <opencv2/opencv.hpp>
+#include "logger.hpp"
 using namespace cv;
 
 double FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect)
@@ -15,7 +16,7 @@ double FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect)
     minMaxLoc(result, NULL, &maxValue, NULL, &maxPt);
 
     std::cout << "(" << maxPt.x << "," << maxPt.y << ")"
-              << "score:" << maxValue<<"\n";
+              << "score:" << maxValue << "\n";
 
     outRect.x = maxPt.x;
     outRect.y = maxPt.y;
@@ -53,14 +54,17 @@ void SampleAlphaMask(Mat &inImage, Mat &outMask)
     Mat binary;
 
     cvtColor(inImage, gray, COLOR_BGR2GRAY);
-    // カメラによってダイナミックレンジが違いそうなので、閾値を自動で設定するadaptiveSamplingを採用
-    //adaptiveThreshold(gray, outMask, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 11, 2);
-    // adaptiveThreshold(gray, outMask, 255, CALIB_CB_ADAPTIVE_THRESH, THRESH_BINARY, 11, 2);
-    cv::threshold(gray,outMask,100,255,THRESH_BINARY);
+    // adaptiveThreshold(gray, outMask, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 11, 2);
+    //  adaptiveThreshold(gray, outMask, 255, CALIB_CB_ADAPTIVE_THRESH, THRESH_BINARY, 11, 2);
+    cv::threshold(gray, outMask, 100, 255, THRESH_BINARY);
 }
 
 int main()
 {
+    const std::string columns = "id,src,method,score";
+    const std::string logPath = "log.csv";
+    const logger log(logPath,columns);
+
     const double MATCH_THRESHOLD = 0.8;
     String srcPath = "noize1.jpeg";
     /*
@@ -76,7 +80,7 @@ int main()
         // ここを動的に検出できるようにする
         SampleAlphaMask(templateImage, mask);
 
-        //imshow("mask", mask);
+        // imshow("mask", mask);
         int max = FindBestMatchRect(fullImage, templateImage, outRect, mask);
     }
 

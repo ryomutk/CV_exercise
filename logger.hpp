@@ -12,16 +12,15 @@ class logger
 private:
     string path;
     stringstream content;
-    string headers[];
+    string headers;
     int countCommaInLine();
     void replaceDataInLine(int index);
 
 public:
-    logger(string path, string columns[]);
+    logger(string path, string columns);
     void append(string data);
     void nextLine();
     void writeFile();
-    ~logger();
 };
 
 #endif // LOGGER_HPP

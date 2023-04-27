@@ -1,12 +1,9 @@
 #include "logger.hpp"
 
-logger::logger(string path, string columns[])
+logger::logger(string path, string columns)
 {
     this->path = path;
-    for (int i; i < columns->length(); i++)
-    {
-        this->headers[i] = columns[i];
-    }
+    this->headers = columns;
 }
 
 void logger::append(string data)
@@ -25,10 +22,7 @@ void logger::writeFile()
     if (!ofs)
     {
         ofs.open(this->path, ios::out);
-        for (int i; i < this->headers->length(); i++)
-        {
-            ofs << headers[i] << ",";
-        }
+        ofs << headers;
         ofs << endl;
     }
 
