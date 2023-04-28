@@ -15,7 +15,7 @@
             "cppStandard": "c++17",
             "intelliSenseMode": "macos-clang-arm64",
             "compilerArgs": [
-                "-std=c++14",
+                "-std=c++17",
                 "`pkg-config --libs opencv4`",
                 "`pkg-config --cflags opencv4`",
                 "-o",
