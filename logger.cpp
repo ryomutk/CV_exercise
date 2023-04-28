@@ -18,20 +18,25 @@ void logger::nextLine()
 
 void logger::writeFile()
 {
-    ofstream ofs(this->path);
-    if (!ofs)
+    ofstream ofs;
+    if (!filesystem::exists(this->path))
     {
-        ofs.open(this->path, ios::out);
+        ofs.open(this->path);
         ofs << headers;
         ofs << endl;
     }
+    else
+    {
+        ofs.open(this->path, ios::app);
+    }
 
     string line;
+    this->content >> line;
     while (!this->content.eof())
     {
-        this->content >> line;
         ofs << line << endl;
-    }
+        this->content >> line;
+    };
 
     ofs.close();
 }
