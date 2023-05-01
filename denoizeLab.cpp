@@ -45,14 +45,31 @@ double FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat 
     return maxValue;
 }
 
-//特徴点を抽出し、ホモグラフィー行列を計算し、templateImageに適用して返す。
+// 画像の背景部分を切り取る。
+Mat TrimImage(Mat &source)
+{
+    Point2i tl, tr, bl, br;
+    Mat gray, bin;
+    vector<vector<Point>> contours;
+    cvtColor(source, gray, COLOR_BGR2GRAY);
+    threshold(gray, bin, 1, 255, THRESH_BINARY);
+
+    vector<Vec4i> hierarchy;
+    findContours(bin, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
+
+    Rect bound = boundingRect(contours[0]);
+    Mat trimmed(source, bound);
+    return trimmed;
+}
+
+// 特徴点を抽出し、ホモグラフィー行列を計算し、templateImageに適用して返す。
 Mat HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat mask, DescriptorMatcher::MatcherType matcherType)
 {
     auto detector = AKAZE::create(AKAZE::DESCRIPTOR_MLDB, 0, 3, 0.001f);
 
     vector<KeyPoint> templateKeypoints, sourceKeypoints;
     Mat templateDiscriptors, sourceDescriptors;
-    detector->detectAndCompute(templateImage, noArray(), templateKeypoints, templateDiscriptors);
+    detector->detectAndCompute(templateImage, mask, templateKeypoints, templateDiscriptors);
     detector->detectAndCompute(fullImage, noArray(), sourceKeypoints, sourceDescriptors);
 
     Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(matcherType);
@@ -90,6 +107,12 @@ Mat HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat
     Mat transformedImg;
     warpPerspective(templateImage, transformedImg, homography, fullImage.size());
 
+    // imshow("warped", transformedImg);
+
+    // 画像サイズでトリム
+    transformedImg = TrimImage(transformedImg);
+
+    // imshow("trimmed", transformedImg);
 
     return transformedImg;
 }
@@ -188,8 +211,9 @@ int main()
 
             case 1:
             {
-                method = "BRUTEFORCEFD";
+                method = "BRUTEFORCEFD_FD";
 
+                //上で生成したmaskを使いつつ、特徴量検出によるホモグラフィー変換(+位置補正)をかける。
                 Mat transformedImg = HomograpyTransformIMG(fullImage, templateImage, outRect, mask, DescriptorMatcher::BRUTEFORCE_HAMMING);
                 SampleAlphaMask(transformedImg, mask, BINARY_THRESHOLD);
                 score = FindBestMatchRect(fullImage, transformedImg, outRect, mask);
@@ -218,9 +242,11 @@ int main()
             count++;
         }
 
+        // ログを残す
         logDenoizeResult(logParams, LOGGER);
     }
 
+    // 終了時にログを書き込む
     LOGGER.writeFile();
     /*
     rectangle(fullImage, outRect, Scalar(0, 255, 255), 3);
