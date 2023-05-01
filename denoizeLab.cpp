@@ -26,7 +26,6 @@ double FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect)
 
 double FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat mask)
 {
-
     Mat result;
 
     matchTemplate(fullImage, templateImage, result, TM_CCOEFF_NORMED, mask);
@@ -44,6 +43,55 @@ double FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat 
     outRect.y = maxPt.y;
 
     return maxValue;
+}
+
+//特徴点を抽出し、ホモグラフィー行列を計算し、templateImageに適用して返す。
+Mat HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat mask, DescriptorMatcher::MatcherType matcherType)
+{
+    auto detector = AKAZE::create(AKAZE::DESCRIPTOR_MLDB, 0, 3, 0.001f);
+
+    vector<KeyPoint> templateKeypoints, sourceKeypoints;
+    Mat templateDiscriptors, sourceDescriptors;
+    detector->detectAndCompute(templateImage, noArray(), templateKeypoints, templateDiscriptors);
+    detector->detectAndCompute(fullImage, noArray(), sourceKeypoints, sourceDescriptors);
+
+    Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(matcherType);
+
+    // 最も近い点のみでのmatch行列を取得
+    vector<vector<DMatch>> knnMatches;
+    matcher->knnMatch(templateDiscriptors, sourceDescriptors, knnMatches, 20);
+
+    vector<DMatch> matches;
+    const float ratio_thresh = .75f;
+    for (size_t i = 0; i < knnMatches.size(); i++)
+    {
+        if (knnMatches[i][0].distance <
+            ratio_thresh * knnMatches[i][1].distance)
+        {
+            matches.push_back(knnMatches[i][0]);
+        }
+    }
+
+    vector<Point2f> matchTemplateKeypoints, matchSourceKeypoints;
+    for (size_t i = 0; i < matches.size(); i++)
+    {
+        matchTemplateKeypoints.push_back(templateKeypoints[matches[i].queryIdx].pt);
+        matchSourceKeypoints.push_back(sourceKeypoints[matches[i].trainIdx].pt);
+    }
+
+    Mat masks;
+    Mat homography = findHomography(matchTemplateKeypoints, matchSourceKeypoints, masks, RANSAC, 3);
+
+    /*
+    Mat matchImage;
+    drawMatches(templateImage, templateKeypoints, fullImage, sourceKeypoints, matches, matchImage);
+    imshow("matchImage", matchImage);
+    */
+    Mat transformedImg;
+    warpPerspective(templateImage, transformedImg, homography, fullImage.size());
+
+
+    return transformedImg;
 }
 
 void SampleAlphaMask(Mat &inImage, Mat &outMask, int threshold)
@@ -98,7 +146,7 @@ int main()
         Mat fullImage = imread(FULL_IMAGE_PATH);
         Rect outRect;
 
-        // デノイズなし
+        // denoiseなし
         logParams[0] = *itr;
         logParams[1] = "NONE";
         logParams[2] = "NONE";
@@ -111,12 +159,15 @@ int main()
         String method;
         double score;
         bool endFlag = false;
+
+        // denoiseセクション
         while (atof(logParams[3].c_str()) < MATCH_THRESHOLD)
         {
 
             switch (count)
             {
             case 0:
+            {
                 /*
                  暗部除去:
                  明るい背景映像に対して、陰になっている部分や、
@@ -126,7 +177,24 @@ int main()
                 score = FindBestMatchRect(fullImage, templateImage, outRect, mask);
                 method = "BINAR";
                 break;
+            }
+                /*
+                case 1:
+                    method = "FLANNBASEDFD";
+                    FindBestMatchWithFD(fullImage, templateImage, outRect, mask, DescriptorMatcher::FLANNBASED);
 
+                    break;
+                    */
+
+            case 1:
+            {
+                method = "BRUTEFORCEFD";
+
+                Mat transformedImg = HomograpyTransformIMG(fullImage, templateImage, outRect, mask, DescriptorMatcher::BRUTEFORCE_HAMMING);
+                SampleAlphaMask(transformedImg, mask, BINARY_THRESHOLD);
+                score = FindBestMatchRect(fullImage, transformedImg, outRect, mask);
+                break;
+            }
             default:
                 endFlag = true;
                 break;
@@ -137,11 +205,16 @@ int main()
                 break;
             }
 
+            logParams[1] = method;
             logParams[2] = to_string(BINARY_THRESHOLD);
             logParams[3] = to_string(score);
             logParams[4] = "\"(" + to_string(correctCords[0] - outRect.x) + "," + to_string(correctCords[1] - outRect.y) + ")\"";
             logDenoizeResult(logParams, LOGGER);
 
+            if (score > MATCH_THRESHOLD)
+            {
+                break;
+            }
             count++;
         }
 
@@ -152,6 +225,6 @@ int main()
     /*
     rectangle(fullImage, outRect, Scalar(0, 255, 255), 3);
     imshow("result", fullImage);
-    waitKey();
     */
+    waitKey();
 }
