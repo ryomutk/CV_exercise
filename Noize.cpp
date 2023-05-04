@@ -2,17 +2,14 @@
 
 using namespace OpencvWrapper;
 
-void Noize::uturikomi(cv::Mat inputImage, cv::Mat outImage, cv::Mat noizeMask, float scale = 1.0f)
+void Noize::uturikomi(Mat inputImage, Mat outImage, std::string noizeMaskPath, float scale = 1.0f)
 {
-
 }
 
-void Noize::darken(cv::Mat inputImage, cv::Mat outImage, float rate = 1.0f)
+void Noize::darken(Mat inputImage, Mat outImage, float rate = 1.0f)
 {
-
 }
 
-void Noize::deform(cv::Mat inputImage, cv::Mat outImage, int rotate, cv::Vec2f scale = cv::Vec2f::ones())
+void Noize::deform(Mat inputImage, Mat outImage, int rotate, Vec2f scale = Vec2f::ones())
 {
-    
 }
