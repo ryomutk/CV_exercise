@@ -14,6 +14,8 @@
                 "`pkg-config --libs opencv4`",
                 "`pkg-config --cflags opencv4`",
                 "logger.cpp",
+                "Noize.cpp",
+                "Denoize.cpp"
             ],
             "options": {
                 "cwd": "${fileDirname}"
