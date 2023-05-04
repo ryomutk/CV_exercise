@@ -1,132 +1,8 @@
 #include <opencv2/opencv.hpp>
+#include "Denoize.hpp"
 #include "logger.hpp"
-using namespace cv;
 
-double FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect)
-{
-    Mat result;
-
-    matchTemplate(fullImage, templateImage, result, TM_CCOEFF_NORMED);
-
-    outRect.height = templateImage.cols;
-    outRect.width = templateImage.rows;
-    Point maxPt;
-    double maxValue;
-
-    minMaxLoc(result, NULL, &maxValue, NULL, &maxPt);
-
-    std::cout << "(" << maxPt.x << "," << maxPt.y << ")"
-              << "score:" << maxValue << "\n";
-
-    outRect.x = maxPt.x;
-    outRect.y = maxPt.y;
-
-    return maxValue;
-}
-
-double FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat mask)
-{
-    Mat result;
-
-    matchTemplate(fullImage, templateImage, result, TM_CCOEFF_NORMED, mask);
-    outRect.height = templateImage.cols;
-    outRect.width = templateImage.rows;
-    Point maxPt;
-    double maxValue;
-
-    minMaxLoc(result, NULL, &maxValue, NULL, &maxPt);
-
-    std::cout << "(" << maxPt.x << "," << maxPt.y << ")"
-              << "score:" << maxValue << "\n";
-
-    outRect.x = maxPt.x;
-    outRect.y = maxPt.y;
-
-    return maxValue;
-}
-
-// 画像の背景部分を切り取る。
-Mat TrimImage(Mat &source)
-{
-    Point2i tl, tr, bl, br;
-    Mat gray, bin;
-    vector<vector<Point>> contours;
-    cvtColor(source, gray, COLOR_BGR2GRAY);
-    threshold(gray, bin, 1, 255, THRESH_BINARY);
-
-    vector<Vec4i> hierarchy;
-    findContours(bin, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
-
-    Rect bound = boundingRect(contours[0]);
-    Mat trimmed(source, bound);
-    return trimmed;
-}
-
-// 特徴点を抽出し、ホモグラフィー行列を計算し、templateImageに適用して返す。
-Mat HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat mask, DescriptorMatcher::MatcherType matcherType)
-{
-    auto detector = AKAZE::create(AKAZE::DESCRIPTOR_MLDB, 0, 3, 0.001f);
-
-    vector<KeyPoint> templateKeypoints, sourceKeypoints;
-    Mat templateDiscriptors, sourceDescriptors;
-    detector->detectAndCompute(templateImage, mask, templateKeypoints, templateDiscriptors);
-    detector->detectAndCompute(fullImage, noArray(), sourceKeypoints, sourceDescriptors);
-
-    Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(matcherType);
-
-    // 最も近い点のみでのmatch行列を取得
-    vector<vector<DMatch>> knnMatches;
-    matcher->knnMatch(templateDiscriptors, sourceDescriptors, knnMatches, 20);
-
-    vector<DMatch> matches;
-    const float ratio_thresh = .75f;
-    for (size_t i = 0; i < knnMatches.size(); i++)
-    {
-        if (knnMatches[i][0].distance <
-            ratio_thresh * knnMatches[i][1].distance)
-        {
-            matches.push_back(knnMatches[i][0]);
-        }
-    }
-
-    vector<Point2f> matchTemplateKeypoints, matchSourceKeypoints;
-    for (size_t i = 0; i < matches.size(); i++)
-    {
-        matchTemplateKeypoints.push_back(templateKeypoints[matches[i].queryIdx].pt);
-        matchSourceKeypoints.push_back(sourceKeypoints[matches[i].trainIdx].pt);
-    }
-
-    Mat masks;
-    Mat homography = findHomography(matchTemplateKeypoints, matchSourceKeypoints, masks, RANSAC, 3);
-
-    /*
-    Mat matchImage;
-    drawMatches(templateImage, templateKeypoints, fullImage, sourceKeypoints, matches, matchImage);
-    imshow("matchImage", matchImage);
-    */
-    Mat transformedImg;
-    warpPerspective(templateImage, transformedImg, homography, fullImage.size());
-
-    // imshow("warped", transformedImg);
-
-    // 画像サイズでトリム
-    transformedImg = TrimImage(transformedImg);
-
-    // imshow("trimmed", transformedImg);
-
-    return transformedImg;
-}
-
-void SampleAlphaMask(Mat &inImage, Mat &outMask, int threshold)
-{
-    int width = inImage.rows;
-    int height = inImage.cols;
-    Mat gray;
-    Mat binary;
-
-    cvtColor(inImage, gray, COLOR_BGR2GRAY);
-    cv::threshold(gray, outMask, threshold, 255, THRESH_BINARY);
-}
+using namespace OpencvWrapper;
 
 void logDenoizeResult(String params[], logger &log)
 {
@@ -141,8 +17,8 @@ void logDenoizeResult(String params[], logger &log)
 
 int main()
 {
-    logger LOGGER("log.csv", "src,method,threshold,score,error,");
-    const string FULL_IMAGE_PATH = "sample.jpeg";
+    logger LOGGER("log.csv", "src,method,score,error");
+    const string FULL_IMAGE_PATH = "full.jpeg";
     const double MATCH_THRESHOLD = 0.8;
     const int BINARY_THRESHOLD = 100;
 
@@ -164,83 +40,28 @@ int main()
 
     for (auto itr = templatePathList.begin(); itr != templatePathList.end(); ++itr)
     {
-        String logParams[5];
+        String logParams[4];
         Mat templateImage = imread(*itr);
         Mat fullImage = imread(FULL_IMAGE_PATH);
         Rect outRect;
-
-        // denoiseなし
-        logParams[0] = *itr;
-        logParams[1] = "NONE";
-        logParams[2] = "NONE";
-        logParams[3] = to_string(FindBestMatchRect(fullImage, templateImage, outRect));
-        logParams[4] = "\"(" + to_string(correctCords[0] - outRect.x) + "," + to_string(correctCords[1] - outRect.y) + ")\"";
-        logDenoizeResult(logParams, LOGGER);
-
-        int count = 0;
-        Mat mask;
-        String method;
         double score;
         bool endFlag = false;
 
         // denoiseセクション
-        while (atof(logParams[3].c_str()) < MATCH_THRESHOLD)
-        {
+        // 特徴量検出によるホモグラフィー変換(+位置補正)をかける。
+        Mat transformedImg = Denoize::HomograpyTransformIMG(fullImage, templateImage, 0.9, DescriptorMatcher::BRUTEFORCE_HAMMING);
+        Mat mask;
+        // 黒背景をマスク
+        Denoize::SampleAlphaMask(transformedImg, mask, 1);
+        score = Denoize::FindBestMatchRect(fullImage, transformedImg, outRect, mask);
 
-            switch (count)
-            {
-            case 0:
-            {
-                /*
-                 暗部除去:
-                 明るい背景映像に対して、陰になっている部分や、
-                 天井が見切れている部分などを除去。
-                */
-                SampleAlphaMask(templateImage, mask, BINARY_THRESHOLD);
-                score = FindBestMatchRect(fullImage, templateImage, outRect, mask);
-                method = "BINAR";
-                break;
-            }
-                /*
-                case 1:
-                    method = "FLANNBASEDFD";
-                    FindBestMatchWithFD(fullImage, templateImage, outRect, mask, DescriptorMatcher::FLANNBASED);
+        // imshow("transformed",transformedImg);
+        // imshow("fullimage",fullImage);
 
-                    break;
-                    */
-
-            case 1:
-            {
-                method = "BRUTEFORCEFD_FD";
-
-                //上で生成したmaskを使いつつ、特徴量検出によるホモグラフィー変換(+位置補正)をかける。
-                Mat transformedImg = HomograpyTransformIMG(fullImage, templateImage, outRect, mask, DescriptorMatcher::BRUTEFORCE_HAMMING);
-                SampleAlphaMask(transformedImg, mask, BINARY_THRESHOLD);
-                score = FindBestMatchRect(fullImage, transformedImg, outRect, mask);
-                break;
-            }
-            default:
-                endFlag = true;
-                break;
-            }
-
-            if (endFlag)
-            {
-                break;
-            }
-
-            logParams[1] = method;
-            logParams[2] = to_string(BINARY_THRESHOLD);
-            logParams[3] = to_string(score);
-            logParams[4] = "\"(" + to_string(correctCords[0] - outRect.x) + "," + to_string(correctCords[1] - outRect.y) + ")\"";
-            logDenoizeResult(logParams, LOGGER);
-
-            if (score > MATCH_THRESHOLD)
-            {
-                break;
-            }
-            count++;
-        }
+        logParams[0] = *itr;
+        logParams[1] = "HOMOGRAPHY";
+        logParams[2] = to_string(score);
+        logParams[3] = "\"(" + to_string(correctCords[0] - outRect.x) + "," + to_string(correctCords[1] - outRect.y) + ")\"";
 
         // ログを残す
         logDenoizeResult(logParams, LOGGER);
