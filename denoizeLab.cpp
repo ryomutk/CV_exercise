@@ -27,7 +27,8 @@ int main()
     std::string samplePath = "samples/";
     std::filesystem::directory_iterator iter(samplePath), end;
     std::error_code err;
-
+    
+    //ディレクトリからサンプル画像を読み込み
     for (; iter != end && !err; iter.increment(err))
     {
         const filesystem::directory_entry entry = *iter;
@@ -38,6 +39,7 @@ int main()
         }
     }
 
+    //テスト用画像の繰り返し単位
     for (auto sampleItr = samplePathList.begin(); sampleItr != samplePathList.end(); ++sampleItr)
     {
 
@@ -54,10 +56,12 @@ int main()
         Denoize::TemplateMatch(fullImage, sampleImage, outRect);
         const Vec2i correctCords(outRect.x, outRect.y);
 
+        //ノイズをかけるセクション
         for (int i = 0; i < int(NoizeTypes::NUM_ITEMS); i++)
         {
             NoizeTypes noize = NoizeTypes(i);
-
+            
+            //弱いノイズから始めて、どこまでデノイズできるかを確かめる
             for (float level = 0.4f; level < 2; level += 0.2f)
             {
                 switch (noize)
@@ -101,7 +105,8 @@ int main()
 
                 string denoizeMethods;
                 score = Denoize::AutoDenoize(fullImage, noizedImage, denoizeMethods, outRect);
-
+                
+                //ログを残す
                 if (score != 0)
                 {
                     logParams[2] = denoizeMethods;
@@ -119,27 +124,6 @@ int main()
                 }
             }
         }
-
-        /*
-        // denoiseセクション
-        // 特徴量検出によるホモグラフィー変換(+位置補正)をかける。
-        Mat transformedImg = Denoize::HomograpyTransformIMG(fullImage, templateImage, 0.9, DescriptorMatcher::BRUTEFORCE_HAMMING);
-        Mat mask;
-        // 黒背景をマスク
-        Denoize::SampleAlphaMask(transformedImg, mask, 1);
-        score = Denoize::FindBestMatchRect(fullImage, transformedImg, outRect, mask);
-
-        // imshow("transformed",transformedImg);
-        // imshow("fullimage",fullImage);
-
-        logParams[0] = *itr;
-        logParams[1] = "HOMOGRAPHY";
-        logParams[2] = to_string(score);
-        logParams[3] = "\"(" + to_string(correctCords[0] - outRect.x) + "," + to_string(correctCords[1] - outRect.y) + ")\"";
-
-        // ログを残す
-        logDenoizeResult(logParams, LOGGER);
-        */
     }
 
     // 終了時にログを書き込む
