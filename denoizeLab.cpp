@@ -105,7 +105,7 @@ void NoizeTest()
                 logParams[1] += "(" + to_string(level) + ")";
 
                 string denoizeMethods;
-                score = Denoize::AutoDenoize(fullImage, noizedImage, denoizeMethods, outRect);
+                score = Denoize::AutoDenoize(fullImage, noizedImage, denoizeMethods, outRect, false, true);
 
                 // ログを残す
                 if (score != 0)
@@ -159,11 +159,8 @@ void FitImage(Mat &screenImg, Mat &inImage, Mat &rescaledImage)
     resize(inImage, rescaledImage, Size(), rate, rate);
 }
 
-int main()
+void CamDenoize()
 {
-    // サンプル画像でノイズテストし、ログを残す
-    // NoizeTest();
-
     VideoCapture videoCapture(0);
 
     Mat vidImage, fullImage, denoizeImage;
@@ -214,6 +211,10 @@ int main()
         {
             shootFlag = true;
         }
+        else if (key == 'c')
+        {
+            pointCords.clear();
+        }
         else if (key == 'q')
         {
             break;
@@ -221,7 +222,7 @@ int main()
 
         if (gaugeanFlag)
         {
-            Noize::gaussianNoise(outImage, outImage, 0.5);
+            Noize::gaussianNoise(outImage, outImage, 0.4);
         }
 
         if (shootFlag)
@@ -248,4 +249,13 @@ int main()
     }
 
     videoWriter.release();
+}
+
+int main()
+{
+    // サンプル画像でノイズテストし、ログを残す
+    //NoizeTest();
+
+    // カメラからの入力をdenoize
+    CamDenoize();
 }

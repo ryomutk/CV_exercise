@@ -78,6 +78,9 @@
         "iterator": "cpp",
         "utility": "cpp",
         "source_location": "cpp",
-        "cinttypes": "cpp"
+        "cinttypes": "cpp",
+        "format": "cpp",
+        "future": "cpp",
+        "thread": "cpp"
     }
 }

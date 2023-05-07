@@ -1,7 +1,7 @@
 #include "Denoize.hpp"
 using namespace OpencvWrapper;
 
-double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &denoizeMethods, Rect &outRect, bool saveResults)
+double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &denoizeMethods, Rect &outRect, bool saveResults, bool useTemplateMatching)
 {
     int n = int(DenoizeType::NUM_ITEMS);
     std::vector<DenoizeType> denoizes;
@@ -33,23 +33,15 @@ double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &den
             case DenoizeType::MEAN_DENOISING:
                 denoizeMethods += "MEAN_DENOISING:";
                 MeansDenoising(outMat, outMat);
+                /*
+                imshow("denoized",outMat);
+                waitKey();
+                */
+                break;
             case DenoizeType::BINARIZATION_MASK:
                 SampleAlphaMask(outMat, mask, BINARY_THRESHOLD);
                 denoizeMethods += "BINARIZATION_MASK:";
                 imwrite("denoize_results/mask.jpeg", mask);
-                break;
-            case DenoizeType::HOMOGRAPHY_TRANSFORM:
-                HomograpyTransformIMG(fullImage, outMat, outMat, mask, DescriptorMatcher::BRUTEFORCE_HAMMING, 0.4);
-                denoizeMethods += "HOMOGRAPHY_TRANSFORM:";
-
-                if (std::find(denoizes.begin(), denoizes.end(), DenoizeType::BINARIZATION_MASK) != denoizes.end())
-                {
-                    SampleAlphaMask(outMat, mask, BINARY_THRESHOLD);
-                }
-                else
-                {
-                    mask = Mat(outMat.size(), outMat.type(), Scalar(255, 255, 255));
-                }
                 break;
 
             default:
@@ -61,11 +53,50 @@ double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &den
         {
             imwrite("denoize_results/" + denoizeMethods + ".jpeg", outMat);
         }
-        score = TemplateMatch(fullImage, outMat, outRect, mask);
 
-        if (score > MATCH_THRESHOLD)
+        if (!useTemplateMatching)
         {
-            return score;
+            //imshow("in", outMat);
+            bool result = HomograpyTransformAndMatchCoord(fullImage, outMat, outMat, mask, outRect, DescriptorMatcher::BRUTEFORCE_HAMMING, 0.4);
+
+            if (result)
+            {
+                std::cout << "successed with " << denoizeMethods << std::endl;
+                return score;
+            }
+            else
+            {
+                std::cout << "failed with " << denoizeMethods << std::endl;
+            }
+        }
+        else
+        {
+            HomograpyTransformAndMatchCoord(fullImage, outMat, outMat, mask, outRect, DescriptorMatcher::BRUTEFORCE_HAMMING, 0.4);
+
+            if (std::find(denoizes.begin(), denoizes.end(), DenoizeType::BINARIZATION_MASK) != denoizes.end())
+            {
+                SampleAlphaMask(outMat, mask, BINARY_THRESHOLD);
+            }
+            else
+            {
+                mask = Mat(outMat.size(), outMat.type(), Scalar(255, 255, 255));
+            }
+
+            score = TemplateMatch(fullImage, outMat, outRect, mask);
+
+            /*
+            imshow("mask", mask);
+            imshow("in", templateImage);
+            imshow("out", outMat);
+            Mat resultImg = fullImage.clone();
+            rectangle(resultImg, outRect, Scalar(0, 255, 0), 4);
+            imshow("result", resultImg);
+            */
+
+            if (score > MATCH_THRESHOLD)
+            {
+                return score;
+            }
         }
     }
 
@@ -102,8 +133,10 @@ double Denoize::TemplateMatch(Mat &fullImage, Mat &templateImage, Rect &outRect)
     std::cout << "(" << maxPt.x << "," << maxPt.y << ")"
               << "score:" << maxValue << "\n";
 
-    outRect.x = maxPt.x;
-    outRect.y = maxPt.y;
+    outRect.x = maxPt.x / RESIZE_RATE;
+    outRect.y = maxPt.y / RESIZE_RATE;
+    outRect.width /= RESIZE_RATE;
+    outRect.height /= RESIZE_RATE;
 
     return maxValue;
 }
@@ -137,20 +170,37 @@ double Denoize::TemplateMatch(Mat &fullImage, Mat &templateImage, Rect &outRect,
     std::cout << "(" << maxPt.x << "," << maxPt.y << ")"
               << "score:" << maxValue << "\n";
 
-    outRect.x = maxPt.x * RESIZE_RATE;
-    outRect.y = maxPt.y * RESIZE_RATE;
-    outRect.width *= RESIZE_RATE;
-    outRect.height *= RESIZE_RATE;
+    outRect.x = maxPt.x / RESIZE_RATE;
+    outRect.y = maxPt.y / RESIZE_RATE;
+    outRect.width /= RESIZE_RATE;
+    outRect.height /= RESIZE_RATE;
 
     return maxValue;
 }
 
-// 画像の背景部分を切り取る。
-Mat Denoize::TrimImage(Mat &source)
+// Homography変換後の、マッチ部分の座標を求める
+void Denoize::CalcRect(Mat &source, Rect &outRect)
 {
     Mat gray, bin;
     std::vector<std::vector<Point>> contours;
 
+    int mx(std::numeric_limits<int>::max()), my(std::numeric_limits<int>::max()), Mx(0), My(0);
+
+    for (int x = 0; x < source.cols; x++)
+    {
+        for (int y = 0; y < source.rows; y++)
+        {
+            if (source.at<Vec3b>(y, x) != Vec3b::zeros())
+            {
+                mx = min(x, mx);
+                my = min(y, my);
+                Mx = max(x, Mx);
+                My = max(y, My);
+            }
+        }
+    }
+
+    /*
     // グレースケールからの二値化(背景は真っ黒想定なのでthreshは１)
     cvtColor(source, gray, COLOR_BGR2GRAY);
     threshold(gray, bin, 1, 255, THRESH_BINARY);
@@ -158,19 +208,16 @@ Mat Denoize::TrimImage(Mat &source)
     // 輪郭検出
     std::vector<Vec4i> hierarchy;
     findContours(bin, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
+    */
 
     // 輪郭のおさまるRectを検出し、切り取り。
     //(背景は真っ黒想定なので、index=0の輪郭が問題なく画像の輪郭であると言える。)
-    Rect bound = boundingRect(contours[0]);
-    imshow("source", source);
-    Mat trimmed(source, bound);
-    imshow("trimmed", trimmed);
-    waitKey();
-    return trimmed;
+    // outRect = boundingRect(contours[0]);
+    outRect = Rect(Point(mx, my), Point(Mx, My));
 }
 
 // 特徴点を抽出し、ホモグラフィー行列を計算し、templateImageに適用して返す。
-void Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Mat &outImage, Mat &mask, DescriptorMatcher::MatcherType matcherType, double DISTANCE_THRESH)
+bool Denoize::HomograpyTransformAndMatchCoord(Mat &fullImage, Mat &templateImage, Mat &outImage, Mat &mask, Rect &resultRect, DescriptorMatcher::MatcherType matcherType, double DISTANCE_THRESH)
 {
     auto detector = AKAZE::create(AKAZE::DESCRIPTOR_MLDB, 0, 3, 0.001f);
 
@@ -209,8 +256,9 @@ void Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Mat &out
         matchSourceKeypoints.push_back(sourceKeypoints[matches[i].trainIdx].pt);
     }
 
-    Mat matchImage;
     /*
+    Mat matchImage;
+
     drawMatches(templateImage, templateKeypoints, fullImage, sourceKeypoints, matches, matchImage);
     imshow("matchImage", matchImage);
     waitKey();
@@ -224,23 +272,34 @@ void Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Mat &out
         if (homography.cols == 0)
         {
             outImage = templateImage.clone();
-            return;
+            return false;
         }
 
         cv::warpPerspective(templateImage, outImage, homography, fullImage.size());
 
         // imshow("warped", outImage);
 
-        // 画像サイズでトリム
+        // 座標情報を返す
+        CalcRect(outImage, resultRect);
 
-        outImage = TrimImage(outImage);
+        /*
+        Mat resultIm = outImage.clone();
+        circle(resultIm, Point(resultRect.x + resultRect.width / 2, resultRect.y + resultRect.height / 2), 10, Scalar(255, 0, 0));
+        rectangle(resultIm, resultRect, Scalar(0, 255, 0), 3);
+        imshow("resultim", resultIm);
+        waitKey();
+        */
+
+        // 画像サイズでトリム
+        outImage = Mat(outImage, resultRect);
 
         // imshow("trimmed", outImage);
         // waitKey();
+        return true;
     }
     else
     {
-        outImage = templateImage.clone();
+        return false;
     }
 }
 
@@ -257,5 +316,5 @@ void Denoize::SampleAlphaMask(Mat &inImage, Mat &outMask, int threshold)
 
 void Denoize::MeansDenoising(Mat &inImage, Mat &outImage, double strength)
 {
-    fastNlMeansDenoisingColored(inImage, outImage);
+    fastNlMeansDenoisingColored(inImage, outImage, 10, 10, 7, 21);
 }
