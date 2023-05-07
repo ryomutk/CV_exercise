@@ -60,7 +60,8 @@ void Noize::deform(Mat &inputImage, Mat &outImage, double rotate, Vec2f scale)
 void Noize::gaussianNoise(Mat &inputImage, Mat &outImage, float strength)
 {
     Mat noise(inputImage.size(), inputImage.type());
-    float stddev = 40 * strength;
-    cv::randn(noise, 128, stddev);
+    float stddev = 40;
+    float mean = 128 * strength;
+    cv::randn(noise, mean, stddev);
     outImage = inputImage + noise;
 }
