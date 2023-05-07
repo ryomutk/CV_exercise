@@ -6,6 +6,7 @@ namespace OpencvWrapper
     enum class DenoizeType : int
     {
         MEAN_DENOISING,
+        BINARIZATION_MASK,
         NUM_ITEMS
     };
 
