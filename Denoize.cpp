@@ -1,7 +1,7 @@
 #include "Denoize.hpp"
 using namespace OpencvWrapper;
 
-double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &denoizeMethods, Rect &outRect)
+double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &denoizeMethods, Rect &outRect, bool saveResults)
 {
     int n = int(DenoizeType::NUM_ITEMS);
     std::vector<DenoizeType> denoizes;
@@ -36,9 +36,10 @@ double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &den
             case DenoizeType::BINARIZATION_MASK:
                 SampleAlphaMask(outMat, mask, BINARY_THRESHOLD);
                 denoizeMethods += "BINARIZATION_MASK:";
+                imwrite("denoize_results/mask.jpeg", mask);
                 break;
             case DenoizeType::HOMOGRAPHY_TRANSFORM:
-                HomograpyTransformIMG(fullImage, outMat, outMat, mask);
+                HomograpyTransformIMG(fullImage, outMat, outMat, mask, DescriptorMatcher::BRUTEFORCE_HAMMING, 0.4);
                 denoizeMethods += "HOMOGRAPHY_TRANSFORM:";
 
                 if (std::find(denoizes.begin(), denoizes.end(), DenoizeType::BINARIZATION_MASK) != denoizes.end())
@@ -56,6 +57,10 @@ double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &den
             }
         }
 
+        if (saveResults)
+        {
+            imwrite("denoize_results/" + denoizeMethods + ".jpeg", outMat);
+        }
         score = TemplateMatch(fullImage, outMat, outRect, mask);
 
         if (score > MATCH_THRESHOLD)
@@ -132,8 +137,10 @@ double Denoize::TemplateMatch(Mat &fullImage, Mat &templateImage, Rect &outRect,
     std::cout << "(" << maxPt.x << "," << maxPt.y << ")"
               << "score:" << maxValue << "\n";
 
-    outRect.x = maxPt.x;
-    outRect.y = maxPt.y;
+    outRect.x = maxPt.x * RESIZE_RATE;
+    outRect.y = maxPt.y * RESIZE_RATE;
+    outRect.width *= RESIZE_RATE;
+    outRect.height *= RESIZE_RATE;
 
     return maxValue;
 }
@@ -155,7 +162,10 @@ Mat Denoize::TrimImage(Mat &source)
     // 輪郭のおさまるRectを検出し、切り取り。
     //(背景は真っ黒想定なので、index=0の輪郭が問題なく画像の輪郭であると言える。)
     Rect bound = boundingRect(contours[0]);
+    imshow("source", source);
     Mat trimmed(source, bound);
+    imshow("trimmed", trimmed);
+    waitKey();
     return trimmed;
 }
 
@@ -164,10 +174,14 @@ void Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Mat &out
 {
     auto detector = AKAZE::create(AKAZE::DESCRIPTOR_MLDB, 0, 3, 0.001f);
 
+    Mat grayFull, grayTemp;
+    cvtColor(fullImage, grayFull, COLOR_RGB2GRAY);
+    cvtColor(templateImage, grayTemp, COLOR_RGB2GRAY);
+
     std::vector<KeyPoint> templateKeypoints, sourceKeypoints;
     Mat templateDiscriptors, sourceDescriptors;
-    detector->detectAndCompute(templateImage, mask, templateKeypoints, templateDiscriptors);
-    detector->detectAndCompute(fullImage, noArray(), sourceKeypoints, sourceDescriptors);
+    detector->detectAndCompute(grayTemp, mask, templateKeypoints, templateDiscriptors);
+    detector->detectAndCompute(grayFull, noArray(), sourceKeypoints, sourceDescriptors);
 
     Ptr<DescriptorMatcher> matcher = BFMatcher::create(matcherType);
 
@@ -194,8 +208,9 @@ void Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Mat &out
         matchTemplateKeypoints.push_back(templateKeypoints[matches[i].queryIdx].pt);
         matchSourceKeypoints.push_back(sourceKeypoints[matches[i].trainIdx].pt);
     }
-    /*
+
     Mat matchImage;
+    /*
     drawMatches(templateImage, templateKeypoints, fullImage, sourceKeypoints, matches, matchImage);
     imshow("matchImage", matchImage);
     waitKey();
@@ -219,10 +234,9 @@ void Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Mat &out
         // 画像サイズでトリム
 
         outImage = TrimImage(outImage);
-        /*
-        imshow("trimmed", outImage);
-        waitKey();
-        */
+
+        // imshow("trimmed", outImage);
+        // waitKey();
     }
     else
     {

@@ -21,7 +21,7 @@ namespace OpencvWrapper
         static Mat TrimImage(Mat &source);
 
     public:
-        static double AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &denoizeMethods, Rect &outRect);
+        static double AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &denoizeMethods, Rect &outRect, bool saveResults = false);
         static double TemplateMatch(Mat &fullImage, Mat &templateImage, Rect &outRect);
         static double TemplateMatch(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat &mask);
         static void HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Mat &outImage, Mat &mask, DescriptorMatcher::MatcherType matcherType = DescriptorMatcher::BRUTEFORCE_HAMMING, double DISTANCE_THRESH = 1);
