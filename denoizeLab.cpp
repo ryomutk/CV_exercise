@@ -86,23 +86,20 @@ void NoizeTest()
                     break;
                 case NoizeTypes::STRETCH:
                     Noize::deform(sampleImage, noizedImage, 180 * level, Vec2f(0.4 / level, 1));
-                    imshow("deformed", noizedImage);
                     logParams[1] = "STRECH";
                     break;
                 case NoizeTypes::SQUEEZE:
                     Noize::deform(sampleImage, noizedImage, 180 * level, Vec2f(level / 0.4, 1));
-                    imshow("deformed", noizedImage);
                     logParams[1] = "SQUEEZE";
                     break;
                 case NoizeTypes::GAUSSIAN_NOISE:
                     Noize::gaussianNoise(sampleImage, noizedImage, 1 * level);
-                    imwrite("noizedImages/gaussianNoise.png", noizedImage);
                     logParams[1] = "GAUSSIAN_NOISE";
                     break;
                 case NoizeTypes::NUM_ITEMS:
                     break;
                 }
-
+                imwrite("noizedimages/" + logParams[1] + ":" + to_string(level) + ".png", noizedImage);
                 logParams[1] += "(" + to_string(level) + ")";
 
                 string denoizeMethods;

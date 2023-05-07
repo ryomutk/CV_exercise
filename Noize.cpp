@@ -15,7 +15,7 @@ void Noize::uturikomi(Mat &inputImage, Mat &outImage, std::string noizeMaskPath,
     {
         RESIZE_RATE = (double)inputImage.cols / mask.cols;
     }
-    resize(mask, mask, Size(), RESIZE_RATE, RESIZE_RATE);
+    resize(mask, mask, Size(), RESIZE_RATE * scale, RESIZE_RATE * scale);
 
     outImage = inputImage.clone();
     for (int i = 0; i < inputImage.rows; i++)
