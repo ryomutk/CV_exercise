@@ -96,6 +96,7 @@ void NoizeTest()
                     break;
                 case NoizeTypes::GAUSSIAN_NOISE:
                     Noize::gaussianNoise(sampleImage, noizedImage, 1 * level);
+                    imwrite("noizedImages/gaussianNoise.png", noizedImage);
                     logParams[1] = "GAUSSIAN_NOISE";
                     break;
                 case NoizeTypes::NUM_ITEMS:
@@ -253,9 +254,17 @@ void CamDenoize()
 
 int main()
 {
-    // サンプル画像でノイズテストし、ログを残す
-    //NoizeTest();
-
-    // カメラからの入力をdenoize
-    CamDenoize();
+    std::string mode;
+    std::cout << "Test?:y/n(n)";
+    std::cin >> mode;
+    if (mode == "y")
+    {
+        // サンプル画像でノイズテストし、ログを残す
+        NoizeTest();
+    }
+    else
+    {
+        // カメラからの入力をdenoize
+        CamDenoize();
+    }
 }
