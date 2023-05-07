@@ -1,14 +1,94 @@
 #include "Denoize.hpp"
 using namespace OpencvWrapper;
 
-double Denoize::FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect)
+double Denoize::AutoDenoize(Mat &fullImage, Mat &templateImage, std::string &denoizeMethods, Rect &outRect)
 {
+    int n = int(DenoizeType::NUM_ITEMS);
+    std::vector<DenoizeType> denoizes;
+    Mat outMat;
+    Mat mask(templateImage.size(), templateImage.type());
+    double score;
+
+    // ビット全探索の要領で、全ての組み合わせでデノイズができるようにする
+    // ノイズタイプを特定できるものが欲しいが、通常そこまで長くはならない。
+    for (int bit = 0; bit < (1 << n); ++bit)
+    {
+        denoizes.clear();
+        for (int i = 0; i < n; ++i)
+        {
+            if (bit & (1 << i))
+            {
+                denoizes.push_back(DenoizeType(i));
+            }
+        }
+
+        mask.setTo(Scalar(255, 255, 255));
+        outMat = templateImage.clone();
+        denoizeMethods = "";
+
+        for (auto itr = denoizes.begin(); itr != denoizes.end(); ++itr)
+        {
+            switch (*itr)
+            {
+            case DenoizeType::MEAN_DENOISING:
+                denoizeMethods += "MEAN_DENOISING:";
+                MeansDenoising(outMat, outMat);
+            case DenoizeType::BINARIZATION_MASK:
+                SampleAlphaMask(outMat, mask, BINARY_THRESHOLD);
+                denoizeMethods += "BINARIZATION_MASK:";
+                break;
+            case DenoizeType::HOMOGRAPHY_TRANSFORM:
+                HomograpyTransformIMG(fullImage, outMat, outMat, mask);
+                denoizeMethods += "HOMOGRAPHY_TRANSFORM:";
+
+                if (std::find(denoizes.begin(), denoizes.end(), DenoizeType::BINARIZATION_MASK) != denoizes.end())
+                {
+                    SampleAlphaMask(outMat, mask, BINARY_THRESHOLD);
+                }
+                else
+                {
+                    mask = Mat(outMat.size(), outMat.type(), Scalar(255, 255, 255));
+                }
+                break;
+
+            default:
+                break;
+            }
+        }
+
+        score = TemplateMatch(fullImage, outMat, outRect, mask);
+
+        if (score > MATCH_THRESHOLD)
+        {
+            return score;
+        }
+    }
+
+    return 0;
+}
+
+double Denoize::TemplateMatch(Mat &fullImage, Mat &templateImage, Rect &outRect)
+{
+    Mat resized_template, resized_full, resized_mask;
+    double RESIZE_RATE;
+    if (templateImage.rows > templateImage.cols)
+    {
+        RESIZE_RATE = std::min(RESIZE_BASE / templateImage.cols, 1.0);
+    }
+    else
+    {
+        RESIZE_RATE = std::min(RESIZE_BASE / templateImage.rows, 1.0);
+    }
+
+    resize(templateImage, resized_template, Size(), RESIZE_RATE, RESIZE_RATE);
+    resize(fullImage, resized_full, Size(), RESIZE_RATE, RESIZE_RATE);
+
     Mat result;
 
-    matchTemplate(fullImage, templateImage, result, TM_CCOEFF_NORMED);
+    matchTemplate(resized_full, resized_template, result, TM_CCOEFF_NORMED);
 
-    outRect.height = templateImage.cols;
-    outRect.width = templateImage.rows;
+    outRect.height = resized_template.cols;
+    outRect.width = resized_template.rows;
     Point maxPt;
     double maxValue;
 
@@ -23,13 +103,27 @@ double Denoize::FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outR
     return maxValue;
 }
 
-double Denoize::FindBestMatchRect(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat mask)
+double Denoize::TemplateMatch(Mat &fullImage, Mat &templateImage, Rect &outRect, Mat &mask)
 {
+    Mat resized_template, resized_full, resized_mask;
+    double RESIZE_RATE;
+    if (templateImage.rows > templateImage.cols)
+    {
+        RESIZE_RATE = std::min(RESIZE_BASE / templateImage.cols, 1.0);
+    }
+    else
+    {
+        RESIZE_RATE = std::min(RESIZE_BASE / templateImage.rows, 1.0);
+    }
+    resize(templateImage, resized_template, Size(), RESIZE_RATE, RESIZE_RATE);
+    resize(fullImage, resized_full, Size(), RESIZE_RATE, RESIZE_RATE);
+    resize(mask, resized_mask, Size(), RESIZE_RATE, RESIZE_RATE);
+
     Mat result;
 
-    matchTemplate(fullImage, templateImage, result, TM_CCOEFF_NORMED, mask);
-    outRect.height = templateImage.cols;
-    outRect.width = templateImage.rows;
+    matchTemplate(resized_full, resized_template, result, TM_CCOEFF_NORMED, resized_mask);
+    outRect.height = resized_template.cols;
+    outRect.width = resized_template.rows;
     Point maxPt;
     double maxValue;
 
@@ -66,13 +160,13 @@ Mat Denoize::TrimImage(Mat &source)
 }
 
 // 特徴点を抽出し、ホモグラフィー行列を計算し、templateImageに適用して返す。
-Mat Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, double DISTANCE_THRESH, DescriptorMatcher::MatcherType matcherType)
+void Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, Mat &outImage, Mat &mask, DescriptorMatcher::MatcherType matcherType, double DISTANCE_THRESH)
 {
     auto detector = AKAZE::create(AKAZE::DESCRIPTOR_MLDB, 0, 3, 0.001f);
 
     std::vector<KeyPoint> templateKeypoints, sourceKeypoints;
     Mat templateDiscriptors, sourceDescriptors;
-    detector->detectAndCompute(templateImage, noArray(), templateKeypoints, templateDiscriptors);
+    detector->detectAndCompute(templateImage, mask, templateKeypoints, templateDiscriptors);
     detector->detectAndCompute(fullImage, noArray(), sourceKeypoints, sourceDescriptors);
 
     Ptr<DescriptorMatcher> matcher = BFMatcher::create(matcherType);
@@ -100,26 +194,40 @@ Mat Denoize::HomograpyTransformIMG(Mat &fullImage, Mat &templateImage, double DI
         matchTemplateKeypoints.push_back(templateKeypoints[matches[i].queryIdx].pt);
         matchSourceKeypoints.push_back(sourceKeypoints[matches[i].trainIdx].pt);
     }
-
+    /*
     Mat matchImage;
     drawMatches(templateImage, templateKeypoints, fullImage, sourceKeypoints, matches, matchImage);
     imshow("matchImage", matchImage);
     waitKey();
+    */
 
-    Mat masks;
-    Mat homography = findHomography(matchTemplateKeypoints, matchSourceKeypoints, masks, RANSAC, 3);
+    if (matches.size() >= 4)
+    {
+        Mat masks;
+        Mat homography = findHomography(matchTemplateKeypoints, matchSourceKeypoints, masks, RANSAC, 3);
 
-    Mat transformedImg;
-    warpPerspective(templateImage, transformedImg, homography, fullImage.size());
+        if (homography.cols == 0)
+        {
+            outImage = templateImage.clone();
+            return;
+        }
 
-    // imshow("warped", transformedImg);
+        cv::warpPerspective(templateImage, outImage, homography, fullImage.size());
 
-    // 画像サイズでトリム
-    transformedImg = TrimImage(transformedImg);
+        // imshow("warped", outImage);
 
-    // imshow("trimmed", transformedImg);
+        // 画像サイズでトリム
 
-    return transformedImg;
+        outImage = TrimImage(outImage);
+        /*
+        imshow("trimmed", outImage);
+        waitKey();
+        */
+    }
+    else
+    {
+        outImage = templateImage.clone();
+    }
 }
 
 void Denoize::SampleAlphaMask(Mat &inImage, Mat &outMask, int threshold)
@@ -131,4 +239,9 @@ void Denoize::SampleAlphaMask(Mat &inImage, Mat &outMask, int threshold)
 
     cvtColor(inImage, gray, COLOR_BGR2GRAY);
     cv::threshold(gray, outMask, threshold, 255, THRESH_BINARY);
+}
+
+void Denoize::MeansDenoising(Mat &inImage, Mat &outImage, double strength)
+{
+    fastNlMeansDenoisingColored(inImage, outImage);
 }
