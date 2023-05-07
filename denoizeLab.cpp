@@ -1,4 +1,5 @@
 #include <opencv2/opencv.hpp>
+#include <future>
 #include "Denoize.hpp"
 #include "Noize.hpp"
 #include "logger.hpp"
@@ -17,7 +18,7 @@ void logDenoizeResult(String params[], logger &log)
     log.nextLine();
 }
 
-int main()
+void NoizeTest()
 {
     logger LOGGER("log.csv", "name,noize,method,score,error");
     const string FULL_IMAGE_PATH = "full.jpeg";
@@ -27,8 +28,8 @@ int main()
     std::string samplePath = "samples/";
     std::filesystem::directory_iterator iter(samplePath), end;
     std::error_code err;
-    
-    //ディレクトリからサンプル画像を読み込み
+
+    // ディレクトリからサンプル画像を読み込み
     for (; iter != end && !err; iter.increment(err))
     {
         const filesystem::directory_entry entry = *iter;
@@ -39,7 +40,7 @@ int main()
         }
     }
 
-    //テスト用画像の繰り返し単位
+    // テスト用画像の繰り返し単位
     for (auto sampleItr = samplePathList.begin(); sampleItr != samplePathList.end(); ++sampleItr)
     {
 
@@ -56,12 +57,12 @@ int main()
         Denoize::TemplateMatch(fullImage, sampleImage, outRect);
         const Vec2i correctCords(outRect.x, outRect.y);
 
-        //ノイズをかけるセクション
+        // ノイズをかけるセクション
         for (int i = 0; i < int(NoizeTypes::NUM_ITEMS); i++)
         {
             NoizeTypes noize = NoizeTypes(i);
-            
-            //弱いノイズから始めて、どこまでデノイズできるかを確かめる
+
+            // 弱いノイズから始めて、どこまでデノイズできるかを確かめる
             for (float level = 0.4f; level < 2; level += 0.2f)
             {
                 switch (noize)
@@ -105,8 +106,8 @@ int main()
 
                 string denoizeMethods;
                 score = Denoize::AutoDenoize(fullImage, noizedImage, denoizeMethods, outRect);
-                
-                //ログを残す
+
+                // ログを残す
                 if (score != 0)
                 {
                     logParams[2] = denoizeMethods;
@@ -132,4 +133,119 @@ int main()
     rectangle(fullImage, outRect, Scalar(0, 255, 255), 3);
     imshow("result", fullImage);
     */
+}
+
+void Roll(Mat &inImage, Mat &outImage, int &value)
+{
+    for (int i = 0; i < inImage.rows; i++)
+    {
+        for (int j = 0; j < inImage.cols; j++)
+        {
+            outImage.at<Vec3b>(i, j)[0] = inImage.at<Vec3b>(i, (j + value) % inImage.rows)[0];
+            outImage.at<Vec3b>(i, j)[1] = inImage.at<Vec3b>(i, (j + value) % inImage.rows)[1];
+            outImage.at<Vec3b>(i, j)[2] = inImage.at<Vec3b>(i, (j + value) % inImage.rows)[2];
+        }
+    }
+}
+
+// 画面におさまるように変形
+void FitImage(Mat &screenImg, Mat &inImage, Mat &rescaledImage)
+{
+    double rateX, rateY, rate;
+    rateX = double(screenImg.cols) / inImage.cols;
+    rateY = double(screenImg.rows) / inImage.rows;
+    rate = min({rateX, rateY, 1.0});
+
+    resize(inImage, rescaledImage, Size(), rate, rate);
+}
+
+int main()
+{
+    // サンプル画像でノイズテストし、ログを残す
+    // NoizeTest();
+
+    VideoCapture videoCapture(0);
+
+    Mat vidImage, fullImage, denoizeImage;
+    String input;
+    Rect screenRect;
+
+    int frameRate = 20;
+
+    while (!videoCapture.isOpened())
+    {
+        videoCapture.open(0);
+        waitKey(1000 / frameRate);
+        cout << "waiting for camera";
+    }
+
+    videoCapture.read(vidImage);
+
+    fullImage = imread("full.jpeg");
+    screenRect.x = 0;
+    screenRect.y = 0;
+    screenRect.width = fullImage.cols / 2;
+    screenRect.height = fullImage.rows - 1;
+
+    int fourcc = VideoWriter::fourcc('m', 'p', '4', 'v');
+    VideoWriter videoWriter("cam_rec.mp4", fourcc, frameRate, vidImage.size());
+
+    Mat outImage(fullImage.size(), fullImage.type()), scrollImage(outImage, screenRect);
+
+    int scrollVal = 0;
+    bool gaugeanFlag = false;
+    bool shootFlag = false;
+    std::string denoizeMethods;
+    Rect outRect;
+    vector<Point> pointCords;
+
+    logger LOGGER("video_log.csv", "name,method,score");
+    while (true)
+    {
+        videoCapture.read(vidImage);
+        Roll(fullImage, outImage, scrollVal);
+        int key = waitKey(1000 / frameRate);
+
+        if (key == 'g')
+        {
+            gaugeanFlag = !gaugeanFlag;
+        }
+        else if (key == 'e')
+        {
+            shootFlag = true;
+        }
+        else if (key == 'q')
+        {
+            break;
+        }
+
+        if (gaugeanFlag)
+        {
+            Noize::gaussianNoise(outImage, outImage, 0.5);
+        }
+
+        if (shootFlag)
+        {
+            FitImage(scrollImage, vidImage, denoizeImage);
+            Denoize::AutoDenoize(scrollImage, denoizeImage, denoizeMethods, outRect, true);
+            Point newPoint = outRect.tl();
+            newPoint.x += outRect.width / 2;
+            newPoint.y += outRect.height / 2;
+            pointCords.push_back(newPoint);
+            shootFlag = false;
+        }
+
+        for (auto pItr = pointCords.begin(); pItr != pointCords.end(); ++pItr)
+        {
+            circle(scrollImage, *pItr, 10, Scalar(255, 0, 0), 5);
+        }
+
+        videoWriter.write(vidImage);
+        imshow("video", scrollImage);
+        imshow("cam", vidImage);
+        setWindowProperty("video", WINDOW_KEEPRATIO, WINDOW_KEEPRATIO);
+        scrollVal += 10;
+    }
+
+    videoWriter.release();
 }
