@@ -17,16 +17,22 @@ void Noize::uturikomi(Mat &inputImage, Mat &outImage, std::string noizeMaskPath,
     }
     resize(mask, mask, Size(), RESIZE_RATE * scale, RESIZE_RATE * scale);
 
+    Point maskDelta((inputImage.cols - mask.cols) / 2, (inputImage.rows - mask.rows) / 2);
+
     outImage = inputImage.clone();
-    for (int i = 0; i < inputImage.rows; i++)
+    Point maskPoint;
+
+    for (int y = std::max(maskDelta.y, 0); y < std::max(maskDelta.y, 0) + std::min(inputImage.rows, mask.rows); y++)
     {
-        for (int j = 0; j < inputImage.cols; j++)
+        for (int x = std::max(maskDelta.x, 0); x < std::max(maskDelta.x, 0) + std::min(inputImage.cols, mask.cols); x++)
         {
-            if (mask.at<Vec4b>(i, j)[3] != 0)
+            maskPoint.y = y - maskDelta.y;
+            maskPoint.x = x - maskDelta.x;
+            if (mask.at<Vec4b>(maskPoint.y, maskPoint.x)[3] != 0)
             {
-                outImage.at<Vec3b>(i, j)[0] = mask.at<Vec4b>(i, j)[0];
-                outImage.at<Vec3b>(i, j)[1] = mask.at<Vec4b>(i, j)[1];
-                outImage.at<Vec3b>(i, j)[2] = mask.at<Vec4b>(i, j)[2];
+                outImage.at<Vec3b>(y, x)[0] = mask.at<Vec4b>(maskPoint.y, maskPoint.x)[0];
+                outImage.at<Vec3b>(y, x)[1] = mask.at<Vec4b>(maskPoint.y, maskPoint.x)[1];
+                outImage.at<Vec3b>(y, x)[2] = mask.at<Vec4b>(maskPoint.y, maskPoint.x)[2];
             }
         }
     }
