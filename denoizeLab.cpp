@@ -126,7 +126,7 @@ void NoizeTest()
     }
 
     // 終了時にログを書き込む
-    //LOGGER.writeFile();
+    LOGGER.writeFile();
     /*
     rectangle(fullImage, outRect, Scalar(0, 255, 255), 3);
     imshow("result", fullImage);
