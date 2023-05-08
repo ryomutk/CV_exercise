@@ -99,7 +99,7 @@ void NoizeTest()
                 case NoizeTypes::NUM_ITEMS:
                     break;
                 }
-                imwrite("noizedimages/" + logParams[1] + ":" + to_string(level) + ".png", noizedImage);
+                //imwrite("noizedimages/" + logParams[1] + ":" + to_string(level) + ".png", noizedImage);
                 logParams[1] += "(" + to_string(level) + ")";
 
                 string denoizeMethods;
@@ -126,7 +126,7 @@ void NoizeTest()
     }
 
     // 終了時にログを書き込む
-    LOGGER.writeFile();
+    //LOGGER.writeFile();
     /*
     rectangle(fullImage, outRect, Scalar(0, 255, 255), 3);
     imshow("result", fullImage);
